@@ -5,44 +5,59 @@ import (
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	"github.com/matryer/goblueprints/chapter1/trace"
 )
 
 type room struct {
-	// 他クライアントに転送メッセージを保持するチャネル
+
+	// forward is a channel that holds incoming messages
+	// that should be forwarded to the other clients.
 	forward chan []byte
-	// チャットルームに参加しようとしているクライアントのためのチャネル
+
+	// join is a channel for clients wishing to join the room.
 	join chan *client
-	// チャットルームから退室しようとしているクライアントのためのチャネル
+
+	// leave is a channel for clients wishing to leave the room.
 	leave chan *client
-	// 在室の全クライアントのためのチャネル
+
+	// clients holds all current clients in this room.
 	clients map[*client]bool
 
-	// tips: チャネルを使わずにマップを直接操作 → 複数のgoroutineがマップを同時に変更する可能性＝メモリの破壊、予期せぬエラーに繋がる
+	// tracer will receive trace information of activity
+	// in the room.
+	tracer trace.Tracer
 }
 
-// do: ①チャットルーム内でチャネル（join, leave, forward）を監視
-// do: ②いずれかのチャネルにメッセージが届く → case節が実行
+// newRoom makes a new room that is ready to
+// go.
+func newRoom() *room {
+	return &room{
+		forward: make(chan []byte),
+		join:    make(chan *client),
+		leave:   make(chan *client),
+		clients: make(map[*client]bool),
+		tracer:  trace.Off(),
+	}
+}
+
 func (r *room) run() {
 	for {
 		select {
 		case client := <-r.join:
-			// 参加
+			// joining
 			r.clients[client] = true
+			r.tracer.Trace("New client joined")
 		case client := <-r.leave:
-			// 退室
+			// leaving
 			delete(r.clients, client)
 			close(client.send)
+			r.tracer.Trace("Client left")
 		case msg := <-r.forward:
-			// 全クライアントにメッセージを転送
+			r.tracer.Trace("Message received: ", string(msg))
+			// forward message to all clients
 			for client := range r.clients {
-				select {
-				case client.send <- msg:
-					// メッセージを送信
-				default:
-					// 送信に失敗
-					delete(r.clients, client)
-					close(client.send)
-				}
+				client.send <- msg
+				r.tracer.Trace(" -- sent to client")
 			}
 		}
 	}
@@ -53,31 +68,21 @@ const (
 	messageBufferSize = 256
 )
 
-// websocket利用のため、HTTP接続をアップグレードするための型
-var upgrader = &websocket.Upgrader{
-	ReadBufferSize:  socketBufferSize,
-	WriteBufferSize: socketBufferSize}
+var upgrader = &websocket.Upgrader{ReadBufferSize: socketBufferSize, WriteBufferSize: socketBufferSize}
 
 func (r *room) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// websocketコネクションの取得
 	socket, err := upgrader.Upgrade(w, req, nil)
 	if err != nil {
-		log.Fatal("SearveHTTP:", err)
+		log.Fatal("ServeHTTP:", err)
 		return
 	}
-
-	// clientを生成し、現在のチャットルームのjoinチャネルに渡す
 	client := &client{
 		socket: socket,
 		send:   make(chan []byte, messageBufferSize),
 		room:   r,
 	}
-
 	r.join <- client
-
-	// クライアント終了時に退室処理を行う
 	defer func() { r.leave <- client }()
 	go client.write()
 	client.read()
-
 }

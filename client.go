@@ -4,28 +4,36 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// チャットを行っている1人のユーザーを表す。
 type client struct {
+
+	// このクライアントのためのWebSocket
 	socket *websocket.Conn
-	send   chan []byte
-	room   *room
+
+	// メッセージが送られるチャネル
+	send chan []byte
+
+	// このクライアントが参加しているチャットルーム
+	room *room
 }
 
 func (c *client) read() {
+	defer c.socket.Close()
 	for {
-		if _, msg, err := c.socket.ReadMessage(); err == nil {
-			c.room.forward <- msg
-		} else {
-			break
+		_, msg, err := c.socket.ReadMessage()
+		if err != nil {
+			return
 		}
+		c.room.forward <- msg
 	}
-	c.socket.Close()
 }
 
 func (c *client) write() {
+	defer c.socket.Close()
 	for msg := range c.send {
-		if err := c.socket.WriteMessage(websocket.TextMessage, msg); err != nil {
-			break
+		err := c.socket.WriteMessage(websocket.TextMessage, msg)
+		if err != nil {
+			return
 		}
-		c.socket.Close()
 	}
 }
