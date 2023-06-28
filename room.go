@@ -10,26 +10,23 @@ import (
 
 type room struct {
 
-	// forward is a channel that holds incoming messages
-	// that should be forwarded to the other clients.
+	// メッセージ管理チャネル
 	forward chan []byte
 
-	// join is a channel for clients wishing to join the room.
+	// 入室管理チャネル
 	join chan *client
 
-	// leave is a channel for clients wishing to leave the room.
+	// 退室管理チャネル
 	leave chan *client
 
-	// clients holds all current clients in this room.
+	// 現在のクライアント管理マップ
 	clients map[*client]bool
 
-	// tracer will receive trace information of activity
-	// in the room.
+	// アクティビティの追跡
 	tracer trace.Tracer
 }
 
-// newRoom makes a new room that is ready to
-// go.
+// 部屋管理チャネル
 func newRoom() *room {
 	return &room{
 		forward: make(chan []byte),
