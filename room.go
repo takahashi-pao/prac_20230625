@@ -38,6 +38,7 @@ func newRoom() *room {
 }
 
 func (r *room) run() {
+	// ポインタ変数で渡す
 	for {
 		select {
 		case client := <-r.join:
